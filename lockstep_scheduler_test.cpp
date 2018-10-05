@@ -14,27 +14,40 @@ void test_absolute_time()
 
 void test_unlocked_semaphore()
 {
-    LockstepScheduler ls;
+    // Create unlocked semaphore.
     sem_t sem;
-    sem_init(&sem, 0, 1); // semaphore is not locked
+    sem_init(&sem, 0, 1);
+
+    LockstepScheduler ls;
     uint64_t timeout_us = some_time_us;
+
     assert(ls.sem_timedwait(sem, timeout_us) == 0);
 }
 
 void test_locked_semaphore()
 {
-    LockstepScheduler ls;
+    // Create unlocked semaphore.
     sem_t sem;
     sem_init(&sem, 0, 1);
-    sem_wait(&sem); // lock semaphore
+    // And lock it.
+    sem_wait(&sem);
+
+    LockstepScheduler ls;
     ls.set_absolute_time(some_time_us);
-    const uint64_t timeout_us = 1000;
-    std::thread t([&ls](){
+
+    // Use a thread to advance the time later.
+    bool should_trigger_timeout = false;
+    std::thread thread([&ls, &should_trigger_timeout]() {
+        ls.set_absolute_time(some_time_us + 500);
+        should_trigger_timeout = true;
         ls.set_absolute_time(some_time_us + 1500);
     });
-    assert(ls.sem_timedwait(sem, timeout_us) == -1);
+
+    assert(!should_trigger_timeout);
+    assert(ls.sem_timedwait(sem, 1000) == -1);
+    assert(should_trigger_timeout);
     assert(errno == ETIMEDOUT);
-    t.join();
+    thread.join();
 }
 
 int main(int /*argc*/, char** /*argv*/)
