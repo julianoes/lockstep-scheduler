@@ -1,6 +1,7 @@
 #include "lockstep_scheduler.h"
 #include <cassert>
 #include <thread>
+#include <atomic>
 #include <unistd.h>
 
 constexpr uint64_t some_time_us = 12345678;
@@ -22,15 +23,15 @@ void test_unlocked_semaphore()
     uint64_t timeout_us = some_time_us;
 
     assert(ls.sem_timedwait(&sem, timeout_us) == 0);
+
+    sem_destroy(&sem);
 }
 
 void test_locked_semaphore_timing_out()
 {
-    // Create unlocked semaphore.
+    // Create locked semaphore.
     sem_t sem;
-    sem_init(&sem, 0, 1);
-    // And lock it.
-    sem_wait(&sem);
+    sem_init(&sem, 0, 000000000);
 
     LockstepScheduler ls;
     ls.set_absolute_time(some_time_us);
@@ -51,6 +52,8 @@ void test_locked_semaphore_timing_out()
     assert(should_trigger_timeout);
     assert(errno == ETIMEDOUT);
     thread.join();
+
+    sem_destroy(&sem);
 }
 
 void test_locked_semaphore_getting_unlocked()
@@ -76,9 +79,88 @@ void test_locked_semaphore_getting_unlocked()
 
     assert(ls.sem_timedwait(&sem, 1000) == 0);
     thread.join();
+
+    sem_destroy(&sem);
 }
 
-void test_usleep()
+class TestCase {
+public:
+    TestCase(unsigned timeout, unsigned unlocked_after, LockstepScheduler &ls) :
+        timeout_(timeout),
+        unlocked_after_(unlocked_after),
+        ls_(ls)
+    {
+        sem_init(&sem_, 0, 0);
+    }
+
+    ~TestCase()
+    {
+        sem_destroy(&sem_);
+    }
+
+    void run()
+    {
+        thread_ = std::make_shared<std::thread>([this]() {
+            result_ = ls_.sem_timedwait(&sem_, timeout_);
+        });
+    }
+
+    void check(uint64_t time_us)
+    {
+        if (is_done_) {
+            return;
+        }
+
+        if (time_us >= unlocked_after_ && unlocked_after_ <= timeout_) {
+            sem_post(&sem_);
+            is_done_ = true;
+            thread_->join();
+            assert(result_ == 0);
+        }
+
+        else if (time_us >= timeout_) {
+            is_done_ = true;
+            thread_->join();
+            assert(result_ == -1);
+        }
+    }
+private:
+    unsigned timeout_;
+    unsigned unlocked_after_;
+    sem_t sem_;
+    LockstepScheduler &ls_;
+    std::atomic<bool> is_done_{false};
+    std::atomic<int> result_ {42};
+    std::shared_ptr<std::thread> thread_{};
+};
+
+void test_multiple_semaphores_waiting()
+{
+    LockstepScheduler ls;
+    ls.set_absolute_time(some_time_us);
+
+    // Use different timeouts in random order.
+    std::vector<std::shared_ptr<TestCase>> test_cases{};
+    test_cases.push_back(std::make_shared<TestCase>(1000,  500,   ls));
+    test_cases.push_back(std::make_shared<TestCase>(10000, 5000,  ls));
+    test_cases.push_back(std::make_shared<TestCase>(10000, 20000, ls));
+    test_cases.push_back(std::make_shared<TestCase>(100,   200,   ls));
+
+    for (auto &test_case : test_cases) {
+        test_case->run();
+    }
+
+    for (unsigned time_us = 10; time_us < 15000; time_us += 10) {
+        ls.set_absolute_time(some_time_us + time_us);
+        for (auto &test_case : test_cases) {
+            test_case->check(time_us);
+        }
+    }
+
+    test_cases.clear();
+}
+
+void test_usleep_properly()
 {
     LockstepScheduler ls;
     ls.set_absolute_time(some_time_us);
@@ -100,13 +182,33 @@ void test_usleep()
     thread.join();
 }
 
+void test_usleep_with_zero()
+{
+    LockstepScheduler ls;
+    ls.set_absolute_time(some_time_us);
+
+    // Use a thread to advance the time later.
+    bool usleep_was_too_late = false;
+    std::thread thread([&usleep_was_too_late]() {
+        usleep(1000);
+        usleep_was_too_late = true;
+    });
+
+    assert(!usleep_was_too_late);
+    assert(ls.usleep(0) == 0);
+    assert(!usleep_was_too_late);
+    thread.join();
+}
+
 int main(int /*argc*/, char** /*argv*/)
 {
     test_absolute_time();
     test_unlocked_semaphore();
     test_locked_semaphore_timing_out();
     test_locked_semaphore_getting_unlocked();
-    test_usleep();
+    test_usleep_properly();
+    test_usleep_with_zero();
+    test_multiple_semaphores_waiting();
 
     return 0;
 }

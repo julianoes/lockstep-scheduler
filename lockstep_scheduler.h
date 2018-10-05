@@ -3,6 +3,9 @@
 #include <cstdint>
 #include <mutex>
 #include <condition_variable>
+#include <vector>
+#include <thread>
+#include <memory>
 #include <ctime>
 #include <semaphore.h>
 
@@ -17,14 +20,17 @@ public:
 
 private:
     uint64_t time_us_{0};
-    mutable std::mutex time_us_mutex_{};
     std::condition_variable time_us_changed_{};
+    mutable std::mutex time_us_mutex_{};
 
-    pthread_t waiting_thread_{0};
-    std::mutex waiting_thread_mutex_{};
-
-    uint64_t timeout_time_us_{0};
-    std::mutex timeout_time_us_mutex_{};
+    struct TimedWait {
+        pthread_t thread_id{0};
+        uint64_t timeout_time_us{0};
+        bool done{false};
+        std::mutex mutex{};
+    };
+    std::vector<std::shared_ptr<TimedWait>> timed_waits_{};
+    std::mutex timed_waits_mutex_{};
 
     uint64_t usleep_time_us_{0};
     std::mutex usleep_time_us_mutex_{};
