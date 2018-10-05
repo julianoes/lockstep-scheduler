@@ -7,8 +7,6 @@
 
 class LockstepScheduler {
 public:
-    LockstepScheduler();
-    ~LockstepScheduler();
     void set_absolute_time(uint64_t time_us);
     uint64_t get_absolute_time() const;
     int sem_timedwait(sem_t sem, uint64_t timeout_us);

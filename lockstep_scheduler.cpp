@@ -6,20 +6,6 @@
 static void sig_handler(int /*signo*/);
 static void register_sig_handler();
 
-LockstepScheduler::LockstepScheduler()
-{
-    {
-        std::lock_guard<std::mutex> lock(waiting_thread_mutex_);
-        waiting_thread_ = pthread_self();
-        register_sig_handler();
-    }
-}
-
-LockstepScheduler::~LockstepScheduler()
-{
-
-}
-
 uint64_t LockstepScheduler::get_absolute_time() const
 {
     std::lock_guard<std::mutex> lock(time_us_mutex_);
@@ -72,9 +58,7 @@ int LockstepScheduler::sem_timedwait(sem_t sem, uint64_t timeout_us)
     }
 }
 
-static void sig_handler(int /*signo*/)
-{
-}
+static void sig_handler(int /*signo*/) {}
 
 static void register_sig_handler()
 {
