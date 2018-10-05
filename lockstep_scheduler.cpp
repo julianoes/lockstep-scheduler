@@ -5,6 +5,21 @@
 
 static void sig_handler(int /*signo*/);
 static void register_sig_handler();
+static void unregister_sig_handler();
+
+LockstepScheduler::LockstepScheduler()
+{
+    {
+        std::lock_guard<std::mutex> lock(waiting_thread_mutex_);
+        waiting_thread_ = pthread_self();
+        register_sig_handler();
+    }
+}
+
+LockstepScheduler::~LockstepScheduler()
+{
+    unregister_sig_handler();
+}
 
 uint64_t LockstepScheduler::get_absolute_time() const
 {
@@ -65,5 +80,13 @@ static void register_sig_handler()
     struct sigaction sa;
     std::memset(&sa, 0, sizeof sa);
     sa.sa_handler = sig_handler;
+    sigaction(SIGUSR1, &sa, NULL);
+}
+
+static void unregister_sig_handler()
+{
+    struct sigaction sa;
+    std::memset(&sa, 0, sizeof sa);
+    sa.sa_handler = SIG_DFL;
     sigaction(SIGUSR1, &sa, NULL);
 }
