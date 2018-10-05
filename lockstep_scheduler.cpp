@@ -14,10 +14,10 @@ uint64_t LockstepScheduler::get_absolute_time() const
 
 void LockstepScheduler::set_absolute_time(uint64_t time_us)
 {
-    std::lock_guard<std::mutex> lock(time_us_mutex_);
+    std::lock_guard<std::mutex> lock_time_us(time_us_mutex_);
     time_us_ = time_us;
     {
-        std::lock_guard<std::mutex> lock(waiting_thread_mutex_);
+        std::lock_guard<std::mutex> lock_waiting_thread(waiting_thread_mutex_);
         pthread_kill(waiting_thread_, SIGUSR1);
     }
 }
