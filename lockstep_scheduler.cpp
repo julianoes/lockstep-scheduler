@@ -3,17 +3,17 @@
 #include <string.h>
 #include <cstring>
 
+
 static void sig_handler(int /*signo*/);
 static void register_sig_handler();
 static void unregister_sig_handler();
 
+
 LockstepScheduler::LockstepScheduler()
 {
-    {
-        std::lock_guard<std::mutex> lock(waiting_thread_mutex_);
-        waiting_thread_ = pthread_self();
-        register_sig_handler();
-    }
+    std::lock_guard<std::mutex> lock(waiting_thread_mutex_);
+    waiting_thread_ = pthread_self();
+    register_sig_handler();
 }
 
 LockstepScheduler::~LockstepScheduler()
@@ -29,11 +29,13 @@ uint64_t LockstepScheduler::get_absolute_time() const
 
 void LockstepScheduler::set_absolute_time(uint64_t time_us)
 {
-    std::lock_guard<std::mutex> lock_time_us(time_us_mutex_);
-    time_us_ = time_us;
     {
-        std::lock_guard<std::mutex> lock_waiting_thread(waiting_thread_mutex_);
-        pthread_kill(waiting_thread_, SIGUSR1);
+        std::lock_guard<std::mutex> lock_time_us(time_us_mutex_);
+        time_us_ = time_us;
+        {
+            std::lock_guard<std::mutex> lock_waiting_thread(waiting_thread_mutex_);
+            pthread_kill(waiting_thread_, SIGUSR1);
+        }
     }
     time_us_changed_.notify_all();
 }
