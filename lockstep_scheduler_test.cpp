@@ -53,11 +53,34 @@ void test_locked_semaphore()
     thread.join();
 }
 
+void test_usleep()
+{
+    LockstepScheduler ls;
+    ls.set_absolute_time(some_time_us);
+
+    // Use a thread to advance the time later.
+    bool usleep_should_be_done = false;
+    std::thread thread([&ls, &usleep_should_be_done]() {
+        usleep(1000);
+        ls.set_absolute_time(some_time_us + 500);
+
+        usleep(1000);
+        usleep_should_be_done = true;
+        ls.set_absolute_time(some_time_us + 1500);
+    });
+
+    assert(!usleep_should_be_done);
+    assert(ls.usleep(1000) == 0);
+    assert(usleep_should_be_done);
+    thread.join();
+}
+
 int main(int /*argc*/, char** /*argv*/)
 {
     test_absolute_time();
     test_unlocked_semaphore();
     test_locked_semaphore();
+    test_usleep();
 
     return 0;
 }

@@ -35,6 +35,7 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
         std::lock_guard<std::mutex> lock_waiting_thread(waiting_thread_mutex_);
         pthread_kill(waiting_thread_, SIGUSR1);
     }
+    time_us_changed_.notify_all();
 }
 
 int LockstepScheduler::sem_timedwait(sem_t sem, uint64_t timeout_us)
@@ -71,6 +72,30 @@ int LockstepScheduler::sem_timedwait(sem_t sem, uint64_t timeout_us)
             }
         }
     }
+}
+
+int LockstepScheduler::usleep(uint64_t usec)
+{
+    {
+        std::lock_guard<std::mutex> lock_time_us(time_us_mutex_);
+        std::lock_guard<std::mutex> usleep_time_us(usleep_time_us_mutex_);
+        usleep_time_us_ = time_us_ + usec;
+    }
+
+    if (usec == 0) {
+        return 0;
+    }
+
+    while (true) {
+        std::unique_lock<std::mutex> lock(time_us_mutex_);
+        time_us_changed_.wait(lock);
+
+        if (usleep_time_us_ <= time_us_) {
+            return 0;
+        }
+    }
+
+    return 0;
 }
 
 static void sig_handler(int /*signo*/) {}
