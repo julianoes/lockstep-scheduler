@@ -10,6 +10,10 @@ add_library(lockstep_scheduler
     lockstep_scheduler.cpp
 )
 
+target_link_libraries(lockstep_scheduler
+    pthread
+)
+
 add_executable(lockstep_scheduler_test
     lockstep_scheduler_test.cpp
 )
