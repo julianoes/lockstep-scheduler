@@ -40,12 +40,11 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
     time_us_changed_.notify_all();
 }
 
-int LockstepScheduler::sem_timedwait(sem_t sem, uint64_t timeout_us)
+int LockstepScheduler::sem_timedwait(sem_t *sem, uint64_t timeout_us)
 {
-    if (0 == sem_trywait(&sem)) {
+    if (0 == sem_trywait(sem)) {
         return 0;
     }
-
     {
         std::lock_guard<std::mutex> lock_time_us(time_us_mutex_);
         std::lock_guard<std::mutex> lock_timeout_time_us(timeout_time_us_mutex_);
@@ -59,7 +58,7 @@ int LockstepScheduler::sem_timedwait(sem_t sem, uint64_t timeout_us)
             register_sig_handler();
         }
 
-        int ret = sem_wait(&sem);
+        int ret = sem_wait(sem);
         if (ret == 0) {
             return 0;
 

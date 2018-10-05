@@ -21,10 +21,10 @@ void test_unlocked_semaphore()
     LockstepScheduler ls;
     uint64_t timeout_us = some_time_us;
 
-    assert(ls.sem_timedwait(sem, timeout_us) == 0);
+    assert(ls.sem_timedwait(&sem, timeout_us) == 0);
 }
 
-void test_locked_semaphore()
+void test_locked_semaphore_timing_out()
 {
     // Create unlocked semaphore.
     sem_t sem;
@@ -47,9 +47,34 @@ void test_locked_semaphore()
     });
 
     assert(!should_trigger_timeout);
-    assert(ls.sem_timedwait(sem, 1000) == -1);
+    assert(ls.sem_timedwait(&sem, 1000) == -1);
     assert(should_trigger_timeout);
     assert(errno == ETIMEDOUT);
+    thread.join();
+}
+
+void test_locked_semaphore_getting_unlocked()
+{
+    // Create unlocked semaphore.
+    sem_t sem;
+    sem_init(&sem, 0, 0);
+
+    LockstepScheduler ls;
+    ls.set_absolute_time(some_time_us);
+
+    // Use a thread to unlock semaphore.
+    std::thread thread([&ls, &sem]() {
+        usleep(1000);
+        ls.set_absolute_time(some_time_us + 500);
+
+        // Unlock semaphore.
+        sem_post(&sem);
+
+        usleep(1000);
+        ls.set_absolute_time(some_time_us + 1500);
+    });
+
+    assert(ls.sem_timedwait(&sem, 1000) == 0);
     thread.join();
 }
 
@@ -79,7 +104,8 @@ int main(int /*argc*/, char** /*argv*/)
 {
     test_absolute_time();
     test_unlocked_semaphore();
-    test_locked_semaphore();
+    test_locked_semaphore_timing_out();
+    test_locked_semaphore_getting_unlocked();
     test_usleep();
 
     return 0;
