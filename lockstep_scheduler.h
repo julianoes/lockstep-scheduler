@@ -19,4 +19,7 @@ private:
 
     pthread_t waiting_thread_{0};
     mutable std::mutex waiting_thread_mutex_{};
+
+    uint64_t timeout_time_us_{0};
+    mutable std::mutex timeout_time_us_mutex_{};
 };

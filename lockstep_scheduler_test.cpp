@@ -38,7 +38,10 @@ void test_locked_semaphore()
     // Use a thread to advance the time later.
     bool should_trigger_timeout = false;
     std::thread thread([&ls, &should_trigger_timeout]() {
+        usleep(1000);
         ls.set_absolute_time(some_time_us + 500);
+
+        usleep(1000);
         should_trigger_timeout = true;
         ls.set_absolute_time(some_time_us + 1500);
     });
