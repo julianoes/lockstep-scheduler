@@ -100,7 +100,7 @@ int LockstepScheduler::usleep_until(uint64_t time_us)
     int result = sem_timedwait(&sem, time_us);
 
     if (result == -1 && errno == ETIMEDOUT) {
-        // This is expected:
+        // This is expected.
         errno = 0;
         result = 0;
     }
