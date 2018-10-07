@@ -4,7 +4,7 @@ project(lockstep_scheduler)
 
 set (CMAKE_CXX_STANDARD 11)
 
-add_definitions(-Wall -Wextra -Werror)
+add_definitions(-Wall -Wextra -Werror -O2)
 
 add_library(lockstep_scheduler
     lockstep_scheduler.cpp
