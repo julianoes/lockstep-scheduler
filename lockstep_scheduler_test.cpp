@@ -168,13 +168,6 @@ public:
 
         else if (timeout_reached) {
             is_done_ = true;
-            // Sometimes we get out of sync and we are not waiting for the
-            // semaphore just yet, so we need to try again.
-            while (result_ == INITIAL_RESULT) {
-                ls_.set_absolute_time(time_us);
-                //usleep(10);
-            }
-
             thread_->join();
             assert(result_ == -1);
         }
