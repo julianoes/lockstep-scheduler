@@ -34,11 +34,6 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
         time_us_ = time_us;
     }
 
-    // We have to wait until the previous step has been carried out.
-    while(num_to_follow_up_ > 0) {
-        ::usleep(1);
-    }
-
     {
         std::lock_guard<std::mutex> lock_timed_waits(timed_waits_mutex_);
 
@@ -59,19 +54,12 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
                 timed_wait->get()->timeout = true;
                 // We are abusing the semaphore because the signal is sometimes
                 // too slow and we get out of sync.
-                ++num_to_follow_up_;
                 sem_post(timed_wait->get()->sem);
                 //pthread_kill(timed_wait->thread_id, chosen_signal);
                 timed_wait->get()->done = true;
             }
             ++timed_wait;
         }
-    }
-
-    // We need to wait until all threads have carried out the time actions
-    // before returning, otherwise we can get out of sync.
-    while(num_to_follow_up_ > 0) {
-        ::usleep(1);
     }
 }
 
@@ -115,7 +103,6 @@ int LockstepScheduler::sem_timedwait(sem_t *sem, uint64_t time_us)
             } else if (new_timed_wait->timeout) {
                 result = -1;
                 errno = ETIMEDOUT;
-                --num_to_follow_up_;
                 return result;
             } else {
                 result = 0;
