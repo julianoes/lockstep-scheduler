@@ -88,20 +88,6 @@ int LockstepScheduler::sem_timedwait(sem_t *sem, uint64_t time_us)
                 return result;
             }
         }
-        /*
-        if (result == 0) {
-            break;
-
-        } else if (result == -1 && errno == EINTR) {
-            {
-                std::lock_guard<std::mutex> lock(new_timed_wait->mutex);
-                if (new_timed_wait->timeout) {
-                    errno = ETIMEDOUT;
-                    break;
-                }
-            }
-        }
-        */
     }
 
 }
