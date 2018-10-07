@@ -136,6 +136,7 @@ public:
 
     ~TestCase()
     {
+        assert(is_done_);
         sem_destroy(&sem_);
     }
 
@@ -201,26 +202,57 @@ int random_number(int min, int max)
 void test_multiple_semaphores_waiting()
 {
 
-    const int num_threads = random_number(1, 20);
-
     LockstepScheduler ls;
     ls.set_absolute_time(some_time_us);
 
     // Use different timeouts in random order.
     std::vector<std::shared_ptr<TestCase>> test_cases{};
-    for (int i = 0; i < num_threads; ++i) {
 
+    test_cases.push_back(
+        std::make_shared<TestCase>(
+            11111, 11111, ls));
+
+    test_cases.push_back(
+        std::make_shared<TestCase>(
+            20000, 20000, ls));
+
+    test_cases.push_back(
+        std::make_shared<TestCase>(
+            0, 20000, ls));
+
+    test_cases.push_back(
+        std::make_shared<TestCase>(
+            20000, 10000, ls));
+
+    test_cases.push_back(
+        std::make_shared<TestCase>(
+            0, 0, ls));
+
+    const int num_additional_threads = random_number(1, 20);
+
+    for (int i = 0; i < num_additional_threads; ++i) {
+        const unsigned timeout = random_number(1, 20000);
+        const unsigned unlocked_after = random_number(1, 20000);
         test_cases.push_back(
             std::make_shared<TestCase>(
-                random_number(1, 20000), random_number(1, 20000), ls));
+                timeout, unlocked_after, ls));
     }
 
     for (auto &test_case : test_cases) {
         test_case->run();
     }
 
-    for (unsigned time_us = 1; time_us < 20000; time_us += random_number(1, 100)) {
+    const int min_step_size = 1;
+    const int max_step_size = 100;
+
+    // We need to go until the max plus max step size to make sure we trigger
+    // all timeouts or semaphores.
+    for (unsigned time_us = 1;
+         time_us <= (20000 + max_step_size);
+         time_us += random_number(min_step_size, max_step_size)) {
+
         ls.set_absolute_time(some_time_us + time_us);
+
         for (auto &test_case : test_cases) {
             test_case->check();
         }
@@ -267,7 +299,7 @@ void test_usleep()
 
 int main(int /*argc*/, char** /*argv*/)
 {
-    for (int iteration = 1; iteration <= 10000; ++iteration) {
+    for (unsigned iteration = 1; iteration <= 10000; ++iteration) {
         std::cout << "Test iteration: " << iteration << std::endl;
         test_absolute_time();
         test_unlocked_semaphore();
