@@ -1,25 +1,5 @@
 #include "lockstep_scheduler.h"
-#include <signal.h>
-#include <string.h>
-#include <cstring>
-#include <unistd.h>
 
-auto constexpr chosen_signal = SIGUSR1;
-
-static void sig_handler(int /*signo*/);
-static void register_sig_handler();
-static void unregister_sig_handler();
-
-
-LockstepScheduler::LockstepScheduler()
-{
-    register_sig_handler();
-}
-
-LockstepScheduler::~LockstepScheduler()
-{
-    unregister_sig_handler();
-}
 
 uint64_t LockstepScheduler::get_absolute_time() const
 {
@@ -48,14 +28,13 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
                 timed_wait = timed_waits_.erase(timed_wait);
                 continue;
             }
-            // Keep holding lock while we kill the thread so it doesn't go away
+            // Keep holding lock while we do the sem_post so it doesn't go away
             // when it's done.
             if (timed_wait->get()->time_us <= time_us) {
                 timed_wait->get()->timeout = true;
                 // We are abusing the semaphore because the signal is sometimes
                 // too slow and we get out of sync.
                 sem_post(timed_wait->get()->sem);
-                //pthread_kill(timed_wait->thread_id, chosen_signal);
                 timed_wait->get()->done = true;
             }
             ++timed_wait;
@@ -76,7 +55,6 @@ int LockstepScheduler::sem_timedwait(sem_t *sem, uint64_t time_us)
 
         {
             std::lock_guard<std::mutex> lock(new_timed_wait->mutex);
-            new_timed_wait->thread_id = pthread_self();
             new_timed_wait->time_us = time_us;
             new_timed_wait->sem = sem;
 
@@ -144,22 +122,4 @@ int LockstepScheduler::usleep_until(uint64_t time_us)
     sem_destroy(&sem);
 
     return result;
-}
-
-static void sig_handler(int /*signo*/) {}
-
-static void register_sig_handler()
-{
-    struct sigaction sa;
-    std::memset(&sa, 0, sizeof sa);
-    sa.sa_handler = sig_handler;
-    sigaction(chosen_signal, &sa, NULL);
-}
-
-static void unregister_sig_handler()
-{
-    struct sigaction sa;
-    std::memset(&sa, 0, sizeof sa);
-    sa.sa_handler = SIG_DFL;
-    sigaction(SIGUSR1, &sa, NULL);
 }
