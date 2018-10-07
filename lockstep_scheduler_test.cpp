@@ -4,7 +4,6 @@
 #include <atomic>
 #include <random>
 #include <iostream>
-#include <chrono>
 
 constexpr uint64_t some_time_us = 12345678;
 
