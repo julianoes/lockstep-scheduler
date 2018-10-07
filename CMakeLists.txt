@@ -4,20 +4,22 @@ project(lockstep_scheduler)
 
 set (CMAKE_CXX_STANDARD 11)
 
-add_definitions(-Wall -Wextra -Werror -O2)
-
 add_library(lockstep_scheduler
-    lockstep_scheduler.cpp
+    src/lockstep_scheduler.cpp
+)
+
+target_include_directories(lockstep_scheduler
+    PUBLIC
+        $<INSTALL_INTERFACE:include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_link_libraries(lockstep_scheduler
     pthread
 )
 
-add_executable(lockstep_scheduler_test
-    lockstep_scheduler_test.cpp
-)
+target_compile_options(lockstep_scheduler PRIVATE -Wall -Wextra -Werror -O2)
 
-target_link_libraries(lockstep_scheduler_test
-    lockstep_scheduler
-)
+add_subdirectory(test)
