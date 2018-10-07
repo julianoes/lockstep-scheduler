@@ -33,91 +33,133 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
         std::lock_guard<std::mutex> lock(time_us_mutex_);
         time_us_ = time_us;
     }
+
+    // We have to wait until the previous step has been carried out.
+    while(num_to_follow_up_ > 0) {
+        ::usleep(1);
+    }
+
     {
-        std::lock_guard<std::mutex> lock(timed_waits_mutex_);
-        for (auto &timed_wait : timed_waits_) {
-            std::lock_guard<std::mutex> lock(timed_wait->mutex);
-            if (timed_wait->done) {
+        std::lock_guard<std::mutex> lock_timed_waits(timed_waits_mutex_);
+
+        auto timed_wait = std::begin(timed_waits_);
+        while (timed_wait != std::end(timed_waits_)) {
+
+            std::unique_lock<std::mutex> lock_timed_wait(timed_wait->get()->mutex);
+            // Clean up the ones that are already done from last iteration.
+            if (timed_wait->get()->done) {
+                // We shouldn't delete a lock in use.
+                lock_timed_wait.unlock();
+                timed_wait = timed_waits_.erase(timed_wait);
                 continue;
             }
             // Keep holding lock while we kill the thread so it doesn't go away
-            // because it's done.
-            pthread_kill(timed_wait->thread_id, chosen_signal);
+            // when it's done.
+            if (timed_wait->get()->time_us <= time_us) {
+                timed_wait->get()->timeout = true;
+                // We are abusing the semaphore because the signal is sometimes
+                // too slow and we get out of sync.
+                ++num_to_follow_up_;
+                sem_post(timed_wait->get()->sem);
+                //pthread_kill(timed_wait->thread_id, chosen_signal);
+                timed_wait->get()->done = true;
+            }
+            ++timed_wait;
         }
     }
-    time_us_changed_.notify_all();
+
+    // We need to wait until all threads have carried out the time actions
+    // before returning, otherwise we can get out of sync.
+    while(num_to_follow_up_ > 0) {
+        ::usleep(1);
+    }
 }
 
-int LockstepScheduler::sem_timedwait(sem_t *sem, uint64_t timeout_us)
+int LockstepScheduler::sem_timedwait(sem_t *sem, uint64_t time_us)
 {
     if (0 == sem_trywait(sem)) {
+
         return 0;
     }
 
     auto new_timed_wait = std::make_shared<TimedWait>();
-    new_timed_wait->timeout_time_us = time_us_ + timeout_us;
-
-    // We need to use pthread_t instead of std::thread::id because we need to
-    // use pthread_kill on it later which doesn't exist in std::thread.
-    new_timed_wait->thread_id = pthread_self();
-
     {
-        std::lock_guard<std::mutex> lock(timed_waits_mutex_);
-        timed_waits_.push_back(new_timed_wait);
+        std::lock_guard<std::mutex> timed_waits_lock(timed_waits_mutex_);
+
+        {
+            std::lock_guard<std::mutex> lock(new_timed_wait->mutex);
+            new_timed_wait->thread_id = pthread_self();
+            new_timed_wait->time_us = time_us;
+            new_timed_wait->sem = sem;
+
+            // The time has already passed.
+            if (time_us <= time_us_) {
+                errno = ETIMEDOUT;
+                return -1;
+            }
+
+            timed_waits_.push_back(new_timed_wait);
+        }
     }
 
     int result;
 
     while (true) {
         result = sem_wait(sem);
+        {
+            std::lock_guard<std::mutex> lock(new_timed_wait->mutex);
+
+            if (result == -1 && errno == EINTR) {
+                continue;
+
+            } else if (new_timed_wait->timeout) {
+                result = -1;
+                errno = ETIMEDOUT;
+                --num_to_follow_up_;
+                return result;
+            } else {
+                result = 0;
+                new_timed_wait->done = true;
+                return result;
+            }
+        }
+        /*
         if (result == 0) {
             break;
 
         } else if (result == -1 && errno == EINTR) {
             {
-                std::lock_guard<std::mutex> lock_time_us(time_us_mutex_);
-                std::lock_guard<std::mutex> lock_timed_wait(new_timed_wait->mutex);
-                if (new_timed_wait->timeout_time_us <= time_us_) {
+                std::lock_guard<std::mutex> lock(new_timed_wait->mutex);
+                if (new_timed_wait->timeout) {
                     errno = ETIMEDOUT;
                     break;
                 }
             }
         }
+        */
     }
 
-    std::lock_guard<std::mutex> lock(new_timed_wait->mutex);
-    new_timed_wait->done = true;
+}
+
+int LockstepScheduler::usleep_until(uint64_t time_us)
+{
+    sem_t sem;
+    sem_init(&sem, 0, 0);
+
+    int result = sem_timedwait(&sem, time_us);
+
+    if (result == -1 && errno == ETIMEDOUT) {
+        // This is expected:
+        errno = 0;
+        result = 0;
+    }
+
+    sem_destroy(&sem);
+
     return result;
 }
 
-int LockstepScheduler::usleep(uint64_t usec)
-{
-    if (usec == 0) {
-        return 0;
-    }
-
-    {
-        std::lock_guard<std::mutex> lock_time_us(time_us_mutex_);
-        std::lock_guard<std::mutex> usleep_time_us(usleep_time_us_mutex_);
-        usleep_time_us_ = time_us_ + usec;
-    }
-
-    while (true) {
-        if (usleep_time_us_ <= time_us_) {
-            return 0;
-        }
-
-        std::unique_lock<std::mutex> lock(time_us_mutex_);
-        time_us_changed_.wait(lock);
-
-    }
-
-    return 0;
-}
-
-static void sig_handler(int /*signo*/)
-{
-}
+static void sig_handler(int /*signo*/) {}
 
 static void register_sig_handler()
 {
