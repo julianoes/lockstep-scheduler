@@ -5,12 +5,15 @@
 #include <random>
 #include <iostream>
 
+
 constexpr uint64_t some_time_us = 12345678;
+
 
 #define WAIT_FOR(condition_) \
     while (!(condition_)) { \
         std::this_thread::yield(); \
     }
+
 
 void test_absolute_time()
 {
