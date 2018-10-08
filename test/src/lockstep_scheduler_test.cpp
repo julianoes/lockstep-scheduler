@@ -299,7 +299,7 @@ void test_usleep()
 int main(int /*argc*/, char** /*argv*/)
 {
     for (unsigned iteration = 1; iteration <= 10000; ++iteration) {
-        std::cout << "Test iteration: " << iteration << std::endl;
+        std::cout << "Test iteration: " << iteration << "\r";
         test_absolute_time();
         test_unlocked_semaphore();
         test_locked_semaphore_timing_out();
