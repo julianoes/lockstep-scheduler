@@ -10,7 +10,7 @@ class LockstepScheduler {
 public:
     void set_absolute_time(uint64_t time_us);
     uint64_t get_absolute_time() const;
-    int sem_timedwait(sem_t *sem, uint64_t time_us);
+    int cond_timedwait(sem_t *cond, sem_t *lock, uint64_t time_us);
     int usleep_until(uint64_t timed_us);
 
 private:
@@ -18,7 +18,8 @@ private:
     mutable std::mutex time_us_mutex_{};
 
     struct TimedWait {
-        sem_t *sem{nullptr};
+        sem_t *cond{nullptr};
+        sem_t *lock{nullptr};
         uint64_t time_us{0};
         bool timeout{false};
         bool done{false};

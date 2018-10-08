@@ -32,9 +32,9 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
             // when it's done.
             if (timed_wait->get()->time_us <= time_us) {
                 timed_wait->get()->timeout = true;
-                // We are abusing the semaphore here to signal that the time
+                // We are abusing the condition here to signal that the time
                 // has passed.
-                sem_post(timed_wait->get()->sem);
+                sem_post(timed_wait->get()->cond);
                 timed_wait->get()->done = true;
             }
             ++timed_wait;
@@ -42,38 +42,43 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
     }
 }
 
-int LockstepScheduler::sem_timedwait(sem_t *sem, uint64_t time_us)
+int LockstepScheduler::cond_timedwait(sem_t *cond, sem_t *lock, uint64_t time_us)
 {
-    if (0 == sem_trywait(sem)) {
-
+    if (0 == sem_trywait(cond)) {
         return 0;
     }
 
-    auto new_timed_wait = std::make_shared<TimedWait>();
+    // TODO: check here if new_timed_wait already exists in vector
+    // or maybe use a map to check quicker, otherwise this is not
+    // atomically as it should be.
+
+    std::shared_ptr<TimedWait> new_timed_wait;
     {
         std::lock_guard<std::mutex> timed_waits_lock(timed_waits_mutex_);
 
-        {
-            std::lock_guard<std::mutex> lock(new_timed_wait->mutex);
-            new_timed_wait->time_us = time_us;
-            new_timed_wait->sem = sem;
-
-            // The time has already passed.
-            if (time_us <= time_us_) {
-                errno = ETIMEDOUT;
-                return -1;
-            }
-
-            timed_waits_.push_back(new_timed_wait);
+        // The time has already passed.
+        if (time_us <= time_us_) {
+            errno = ETIMEDOUT;
+            return -1;
         }
+
+        new_timed_wait = std::make_shared<TimedWait>();
+        {
+            std::lock_guard<std::mutex> new_timed_wait_lock(new_timed_wait->mutex);
+            new_timed_wait->time_us = time_us;
+            new_timed_wait->cond = cond;
+            new_timed_wait->lock = lock;
+        }
+        timed_waits_.push_back(new_timed_wait);
+
+        // We need to unlock before we wait on the condition.
+        sem_post(new_timed_wait->lock);
     }
 
-    int result;
-
     while (true) {
-        result = sem_wait(sem);
+        int result = sem_wait(cond);
         {
-            std::lock_guard<std::mutex> lock(new_timed_wait->mutex);
+            std::lock_guard<std::mutex> new_timed_wait_lock(new_timed_wait->mutex);
 
             if (result == -1 && errno == EINTR) {
                 continue;
@@ -81,11 +86,15 @@ int LockstepScheduler::sem_timedwait(sem_t *sem, uint64_t time_us)
             } else if (new_timed_wait->timeout) {
                 result = -1;
                 errno = ETIMEDOUT;
+                // We need to lock again before returning.
+                sem_wait(new_timed_wait->lock);
                 return result;
 
             } else {
                 result = 0;
                 new_timed_wait->done = true;
+                // We need to lock again before returning.
+                sem_wait(new_timed_wait->lock);
                 return result;
             }
         }
@@ -94,10 +103,13 @@ int LockstepScheduler::sem_timedwait(sem_t *sem, uint64_t time_us)
 
 int LockstepScheduler::usleep_until(uint64_t time_us)
 {
-    sem_t sem;
-    sem_init(&sem, 0, 0);
+    sem_t cond;
+    sem_init(&cond, 0, 0);
 
-    int result = sem_timedwait(&sem, time_us);
+    sem_t lock;
+    sem_init(&lock, 0, 0);
+
+    int result = cond_timedwait(&cond, &lock, time_us);
 
     if (result == -1 && errno == ETIMEDOUT) {
         // This is expected because we never posted to the
@@ -106,7 +118,8 @@ int LockstepScheduler::usleep_until(uint64_t time_us)
         result = 0;
     }
 
-    sem_destroy(&sem);
+    sem_destroy(&lock);
+    sem_destroy(&cond);
 
     return result;
 }
