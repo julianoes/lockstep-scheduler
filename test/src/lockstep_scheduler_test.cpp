@@ -8,13 +8,6 @@
 
 constexpr uint64_t some_time_us = 12345678;
 
-
-#define WAIT_FOR(condition_) \
-    while (!(condition_)) { \
-        std::this_thread::yield(); \
-    }
-
-
 void test_absolute_time()
 {
     LockstepScheduler ls;
@@ -22,127 +15,74 @@ void test_absolute_time()
     assert(ls.get_absolute_time() == some_time_us);
 }
 
-void test_condition_already_satisfied()
-{
-    // Create unlocked condition.
-    sem_t cond;
-    sem_init(&cond, 0, 1);
-
-    // And a lock which needs to be locked
-    sem_t lock;
-    sem_init(&lock, 0, 0);
-
-    LockstepScheduler ls;
-    uint64_t timeout_us = some_time_us;
-
-    assert(ls.cond_timedwait(&cond, &lock, timeout_us) == 0);
-
-    sem_destroy(&lock);
-    sem_destroy(&cond);
-}
-
 void test_condition_timing_out()
 {
     // Create locked condition.
-    sem_t cond;
-    sem_init(&cond, 0, 0);
+    pthread_cond_t cond;
+    pthread_cond_init(&cond, NULL);
 
     // And a lock which needs to be locked
-    sem_t lock;
-    sem_init(&lock, 0, 0);
+    pthread_mutex_t lock;
+    pthread_mutex_init(&lock, NULL);
 
     LockstepScheduler ls;
     ls.set_absolute_time(some_time_us);
 
-    enum class Step {
-        Init,
-        ThreadStarted,
-        BeforeTimedWait,
-        TimeoutNotTriggeredYet,
-        TimeoutTriggered
-    };
+    std::atomic<bool> should_have_timed_out{false};
+    pthread_mutex_lock(&lock);
 
-    std::atomic<Step> step{Step::Init};
-
-    // Use a thread to advance the time later.
-    std::thread thread([&ls, &step]() {
-        step = Step::ThreadStarted;
-
-        WAIT_FOR(step == Step::BeforeTimedWait);
-
-        step = Step::TimeoutNotTriggeredYet;
-        ls.set_absolute_time(some_time_us + 500);
-
-        step = Step::TimeoutTriggered;
-        ls.set_absolute_time(some_time_us + 1500);
+    // Use a thread to wait for condition while we already have the lock.
+    // This ensures the synchronization happens in the right order.
+    std::thread thread([&ls, &cond, &lock, &should_have_timed_out]() {
+        assert(ls.cond_timedwait(&cond, &lock, some_time_us + 1000) == -1);
+        assert(errno == ETIMEDOUT);
+        assert(should_have_timed_out);
+        // It should be re-locked afterwards, so we should be able to unlock it.
+        assert(pthread_mutex_unlock(&lock) == 0);
     });
 
-    WAIT_FOR(step == Step::ThreadStarted);
+    ls.set_absolute_time(some_time_us + 500);
+    should_have_timed_out = true;
+    ls.set_absolute_time(some_time_us + 1500);
 
-    step = Step::BeforeTimedWait;
-
-    assert(ls.cond_timedwait(&cond, &lock, some_time_us + 1000) == -1);
-    assert(errno == ETIMEDOUT);
-    assert(step == Step::TimeoutTriggered);
-    // It should be re-locked afterwards, so we should be able to unlock it.
-    assert(sem_post(&lock) == 0);
+    pthread_mutex_destroy(&lock);
+    pthread_cond_destroy(&cond);
 
     thread.join();
-
-    sem_destroy(&lock);
-    sem_destroy(&cond);
 }
 
 void test_locked_semaphore_getting_unlocked()
 {
     // Create locked condition.
-    sem_t cond;
-    sem_init(&cond, 0, 0);
+    pthread_cond_t cond;
+    pthread_cond_init(&cond, NULL);
 
     // And a lock which needs to be locked
-    sem_t lock;
-    sem_init(&lock, 0, 0);
+    pthread_mutex_t lock;
+    pthread_mutex_init(&lock, NULL);
 
     LockstepScheduler ls;
     ls.set_absolute_time(some_time_us);
 
-    enum class Step {
-        Init,
-        ThreadStarted,
-        BeforeTimedWait,
-        TimeoutNotTriggeredYet,
-        SemaphoreTriggered
-    };
+    pthread_mutex_lock(&lock);
+    // Use a thread to wait for condition while we already have the lock.
+    // This ensures the synchronization happens in the right order.
+    std::thread thread([&ls, &cond, &lock]() {
 
-    std::atomic<Step> step{Step::Init};
-
-    // Use a thread to unlock condition.
-    std::thread thread([&ls, &cond, &step]() {
-        step = Step::ThreadStarted;
-
-        WAIT_FOR(step == Step::BeforeTimedWait);
-
-        step = Step::TimeoutNotTriggeredYet;
         ls.set_absolute_time(some_time_us + 500);
-
-
-        step = Step::SemaphoreTriggered;
-        // Unlock semaphore.
-        sem_post(&cond);
+        assert(ls.cond_timedwait(&cond, &lock, some_time_us + 1000) == 0);
+        // It should be re-locked afterwards, so we should be able to unlock it.
+        assert(pthread_mutex_unlock(&lock) == 0);
     });
 
-    WAIT_FOR(step == Step::ThreadStarted);
-
-    step = Step::BeforeTimedWait;
-    assert(ls.cond_timedwait(&cond, &lock, some_time_us + 1000) == 0);
-    assert(step == Step::SemaphoreTriggered);
-    // It should be re-locked afterwards, so we should be able to unlock it.
-    assert(sem_post(&lock) == 0);
+    pthread_mutex_lock(&lock);
+    pthread_cond_broadcast(&cond);
+    pthread_mutex_unlock(&lock);
 
     thread.join();
 
-    sem_destroy(&lock);
-    sem_destroy(&cond);
+    pthread_mutex_destroy(&lock);
+    pthread_cond_destroy(&cond);
 }
 
 class TestCase {
@@ -152,21 +92,23 @@ public:
         unlocked_after_(unlocked_after + some_time_us),
         ls_(ls)
     {
-        sem_init(&cond_, 0, 0);
-        sem_init(&lock_, 0, 0);
+        pthread_mutex_init(&lock_, NULL);
+        pthread_cond_init(&cond_, NULL);
     }
 
     ~TestCase()
     {
         assert(is_done_);
-        sem_destroy(&lock_);
-        sem_destroy(&cond_);
+        pthread_mutex_destroy(&lock_);
+        pthread_cond_destroy(&cond_);
     }
 
     void run()
     {
+        pthread_mutex_lock(&lock_);
         thread_ = std::make_shared<std::thread>([this]() {
             result_ = ls_.cond_timedwait(&cond_, &lock_, timeout_);
+            pthread_mutex_unlock(&lock_);
         });
     }
 
@@ -183,7 +125,9 @@ public:
         const bool timeout_reached = (time_us >= timeout_);
 
         if (unlock_reached && unlock_is_before_timeout && !(timeout_reached)) {
-            sem_post(&cond_);
+            pthread_mutex_lock(&lock_);
+            pthread_cond_broadcast(&cond_);
+            pthread_mutex_unlock(&lock_);
             is_done_ = true;
             // We can be sure that this triggers.
             thread_->join();
@@ -194,7 +138,6 @@ public:
             is_done_ = true;
             thread_->join();
             assert(result_ == -1);
-            assert(sem_post(&lock_) == 0);
         }
     }
 private:
@@ -202,8 +145,8 @@ private:
 
     unsigned timeout_;
     unsigned unlocked_after_;
-    sem_t cond_;
-    sem_t lock_;
+    pthread_cond_t cond_;
+    pthread_mutex_t lock_;
     LockstepScheduler &ls_;
     std::atomic<bool> is_done_{false};
     std::atomic<int> result_ {INITIAL_RESULT};
@@ -286,6 +229,11 @@ void test_multiple_semaphores_waiting()
     test_cases.clear();
 }
 
+#define WAIT_FOR(condition_) \
+    while (!(condition_)) { \
+        std::this_thread::yield(); \
+    }
+
 void test_usleep()
 {
     LockstepScheduler ls;
@@ -327,7 +275,6 @@ int main(int /*argc*/, char** /*argv*/)
     for (unsigned iteration = 1; iteration <= 10000; ++iteration) {
         std::cout << "Test iteration: " << iteration << "\n";
         test_absolute_time();
-        test_condition_already_satisfied();
         test_condition_timing_out();
         test_locked_semaphore_getting_unlocked();
         test_usleep();
