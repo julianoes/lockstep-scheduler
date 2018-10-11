@@ -4,6 +4,7 @@
 #include <mutex>
 #include <vector>
 #include <memory>
+#include <atomic>
 #include <pthread.h>
 
 class LockstepScheduler {
@@ -14,8 +15,7 @@ public:
     int usleep_until(uint64_t timed_us);
 
 private:
-    uint64_t time_us_{0};
-    mutable std::mutex time_us_mutex_{};
+    std::atomic<uint64_t> time_us_{0};
 
     struct TimedWait {
         pthread_cond_t *passed_cond{nullptr};

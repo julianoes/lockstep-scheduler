@@ -3,16 +3,12 @@
 
 uint64_t LockstepScheduler::get_absolute_time() const
 {
-    std::lock_guard<std::mutex> lock(time_us_mutex_);
     return time_us_;
 }
 
 void LockstepScheduler::set_absolute_time(uint64_t time_us)
 {
-    {
-        std::lock_guard<std::mutex> lock(time_us_mutex_);
-        time_us_ = time_us;
-    }
+    time_us_ = time_us;
 
     {
         std::lock_guard<std::mutex> lock_timed_waits(timed_waits_mutex_);
