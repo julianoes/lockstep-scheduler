@@ -16,23 +16,32 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
         auto timed_wait = std::begin(timed_waits_);
         while (timed_wait != std::end(timed_waits_)) {
 
+            std::shared_ptr<TimedWait> temp_timed_wait = *timed_wait;
+
             // Clean up the ones that are already done from last iteration.
-            if (timed_wait->get()->done) {
+            if (temp_timed_wait->done) {
                 // We shouldn't delete a lock in use.
                 timed_wait = timed_waits_.erase(timed_wait);
+                timed_waits_iterator_invalidated_ = true;
                 continue;
             }
 
-            if (timed_wait->get()->time_us <= time_us) {
-                timed_wait->get()->timeout = true;
+            if (temp_timed_wait->time_us <= time_us && !temp_timed_wait->timeout) {
+                temp_timed_wait->timeout = true;
                 // We are abusing the condition here to signal that the time
                 // has passed.
+                timed_waits_iterator_invalidated_ = false;
                 lock_timed_waits.unlock();
-                pthread_mutex_lock(timed_wait->get()->passed_lock);
-                pthread_cond_broadcast(timed_wait->get()->passed_cond);
-                pthread_mutex_unlock(timed_wait->get()->passed_lock);
+                pthread_mutex_lock(temp_timed_wait->passed_lock);
+                pthread_cond_broadcast(temp_timed_wait->passed_cond);
+                pthread_mutex_unlock(temp_timed_wait->passed_lock);
                 lock_timed_waits.lock();
-                timed_wait->get()->done = true;
+                if (timed_waits_iterator_invalidated_) {
+                    // The vector might have changed, we need to start from the
+                    // beginning.
+                    timed_wait = std::begin(timed_waits_);
+                    continue;
+                }
             }
             ++timed_wait;
         }
@@ -56,6 +65,7 @@ int LockstepScheduler::cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *loc
         new_timed_wait->passed_cond = cond;
         new_timed_wait->passed_lock = lock;
         timed_waits_.push_back(new_timed_wait);
+        timed_waits_iterator_invalidated_ = true;
     }
 
     while (true) {

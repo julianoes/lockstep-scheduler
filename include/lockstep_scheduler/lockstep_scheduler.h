@@ -26,4 +26,5 @@ private:
     };
     std::vector<std::shared_ptr<TimedWait>> timed_waits_{};
     std::mutex timed_waits_mutex_{};
+    bool timed_waits_iterator_invalidated_{false};
 };
