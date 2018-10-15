@@ -11,7 +11,7 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
     time_us_ = time_us;
 
     {
-        std::lock_guard<std::mutex> lock_timed_waits(timed_waits_mutex_);
+        std::unique_lock<std::mutex> lock_timed_waits(timed_waits_mutex_);
 
         auto timed_wait = std::begin(timed_waits_);
         while (timed_wait != std::end(timed_waits_)) {
@@ -27,9 +27,11 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
                 timed_wait->get()->timeout = true;
                 // We are abusing the condition here to signal that the time
                 // has passed.
+                lock_timed_waits.unlock();
                 pthread_mutex_lock(timed_wait->get()->passed_lock);
                 pthread_cond_broadcast(timed_wait->get()->passed_cond);
                 pthread_mutex_unlock(timed_wait->get()->passed_lock);
+                lock_timed_waits.lock();
                 timed_wait->get()->done = true;
             }
             ++timed_wait;
