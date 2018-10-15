@@ -41,13 +41,13 @@ int LockstepScheduler::cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *loc
 {
     std::shared_ptr<TimedWait> new_timed_wait;
     {
-        std::lock_guard<std::mutex> timed_waits_lock(timed_waits_mutex_);
-
         // The time has already passed.
         if (time_us <= time_us_) {
             errno = ETIMEDOUT;
             return -1;
         }
+
+        std::lock_guard<std::mutex> timed_waits_lock(timed_waits_mutex_);
 
         new_timed_wait = std::make_shared<TimedWait>();
         new_timed_wait->time_us = time_us;
