@@ -27,10 +27,7 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
                 timed_wait->get()->timeout = true;
                 // We are abusing the condition here to signal that the time
                 // has passed.
-                if (pthread_mutex_trylock(timed_wait->get()->passed_lock) != 0) {
-                    ++timed_wait;
-                    continue;
-                }
+                pthread_mutex_lock(timed_wait->get()->passed_lock);
                 pthread_cond_broadcast(timed_wait->get()->passed_cond);
                 pthread_mutex_unlock(timed_wait->get()->passed_lock);
                 timed_wait->get()->done = true;
