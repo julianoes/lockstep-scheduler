@@ -13,15 +13,15 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
     {
         std::unique_lock<std::mutex> lock_timed_waits(timed_waits_mutex_);
 
-        auto timed_wait = std::begin(timed_waits_);
-        while (timed_wait != std::end(timed_waits_)) {
+        auto it = std::begin(timed_waits_);
+        while (it != std::end(timed_waits_)) {
 
-            std::shared_ptr<TimedWait> temp_timed_wait = *timed_wait;
+            std::shared_ptr<TimedWait> temp_timed_wait = *it;
 
             // Clean up the ones that are already done from last iteration.
             if (temp_timed_wait->done) {
                 // We shouldn't delete a lock in use.
-                timed_wait = timed_waits_.erase(timed_wait);
+                it = timed_waits_.erase(it);
                 timed_waits_iterator_invalidated_ = true;
                 continue;
             }
@@ -36,14 +36,15 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
                 pthread_cond_broadcast(temp_timed_wait->passed_cond);
                 pthread_mutex_unlock(temp_timed_wait->passed_lock);
                 lock_timed_waits.lock();
+                temp_timed_wait->done = true;
                 if (timed_waits_iterator_invalidated_) {
                     // The vector might have changed, we need to start from the
                     // beginning.
-                    timed_wait = std::begin(timed_waits_);
+                    it = std::begin(timed_waits_);
                     continue;
                 }
             }
-            ++timed_wait;
+            ++it;
         }
     }
 }
