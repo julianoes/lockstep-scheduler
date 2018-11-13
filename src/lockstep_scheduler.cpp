@@ -31,12 +31,9 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
                 // We are abusing the condition here to signal that the time
                 // has passed.
                 timed_waits_iterator_invalidated_ = false;
-                lock_timed_waits.unlock();
                 pthread_mutex_lock(temp_timed_wait->passed_lock);
                 pthread_cond_broadcast(temp_timed_wait->passed_cond);
                 pthread_mutex_unlock(temp_timed_wait->passed_lock);
-                lock_timed_waits.lock();
-                temp_timed_wait->done = true;
                 if (timed_waits_iterator_invalidated_) {
                     // The vector might have changed, we need to start from the
                     // beginning.
