@@ -20,9 +20,7 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
 
             // Clean up the ones that are already done from last iteration.
             if (temp_timed_wait->done) {
-                // We shouldn't delete a lock in use.
                 it = timed_waits_.erase(it);
-                timed_waits_iterator_invalidated_ = true;
                 continue;
             }
 
