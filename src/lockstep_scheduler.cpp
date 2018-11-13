@@ -50,7 +50,7 @@ int LockstepScheduler::cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *loc
 {
     std::shared_ptr<TimedWait> new_timed_wait;
     {
-        std::lock_guard<std::mutex> timed_waits_lock(timed_waits_mutex_);
+        std::lock_guard<std::mutex> lock_timed_waits(timed_waits_mutex_);
 
         // The time has already passed.
         if (time_us <= time_us_) {
@@ -69,15 +69,24 @@ int LockstepScheduler::cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *loc
     while (true) {
         int result = pthread_cond_wait(cond, lock);
 
-        if (result == 0 && new_timed_wait->timeout) {
-            errno = ETIMEDOUT;
-            result = -1;
-            return result;
+        // We need to unlock before aqcuiring the timed_waits_mutex, otherwise
+        // we are at rist of priority inversion.
+        pthread_mutex_unlock(lock);
 
-        } else {
+        {
+            std::lock_guard<std::mutex> lock_timed_waits(timed_waits_mutex_);
+
+            if (result == 0 && new_timed_wait->timeout) {
+                errno = ETIMEDOUT;
+                result = -1;
+            }
+
             new_timed_wait->done = true;
-            return result;
         }
+
+        // The lock needs to be locked on exit of this function
+        pthread_mutex_lock(lock);
+        return result;
     }
 }
 
