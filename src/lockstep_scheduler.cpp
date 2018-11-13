@@ -24,7 +24,9 @@ void LockstepScheduler::set_absolute_time(uint64_t time_us)
                 continue;
             }
 
-            if (temp_timed_wait->time_us <= time_us && !temp_timed_wait->timeout) {
+            if (temp_timed_wait->time_us <= time_us &&
+                    !temp_timed_wait->timeout &&
+                    !temp_timed_wait->done) {
                 temp_timed_wait->timeout = true;
                 // We are abusing the condition here to signal that the time
                 // has passed.
