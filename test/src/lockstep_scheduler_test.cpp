@@ -45,10 +45,11 @@ void test_condition_timing_out()
     should_have_timed_out = true;
     ls.set_absolute_time(some_time_us + 1500);
 
+    thread.join();
+
     pthread_mutex_destroy(&lock);
     pthread_cond_destroy(&cond);
 
-    thread.join();
 }
 
 void test_locked_semaphore_getting_unlocked()
